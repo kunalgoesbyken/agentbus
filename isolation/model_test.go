@@ -71,6 +71,7 @@ type actor struct {
 	links bool
 	modes bool
 	log   []string
+	mtime bool
 }
 
 func (a *actor) clearParents(rel string) {
@@ -123,7 +124,7 @@ func (a *actor) step(i int) {
 			a.log = append(a.log, "mv "+rel+" "+to)
 		}
 	default:
-		if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
+		if fi, err := os.Lstat(p); a.mtime && err == nil && fi.Mode().IsRegular() {
 			b, _ := os.ReadFile(p)
 			if len(b) > 0 {
 				b[0] ^= 1
@@ -188,29 +189,40 @@ func TestApplyModel(t *testing.T) {
 	}
 	start, _ := strconv.Atoi(os.Getenv("MODEL_START"))
 	backends := []string{Copy}
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" && OverlayWhy(t.TempDir()) == "" {
 		backends = append(backends, Overlay)
 	}
-	links := runtime.GOOS != "windows"
-	modes := runtime.GOOS != "windows"
-	found := 0
+	m := &model{links: runtime.GOOS != "windows", modes: runtime.GOOS != "windows", mtime: os.Getenv("MODEL_MTIME") != ""}
 	for _, name := range backends {
-		for seed := start; seed < start+n && found < 5; seed++ {
-			if name == Overlay && OverlayWhy(t.TempDir()) != "" {
-				break
+		counts := map[string]int{}
+		first := map[string]string{}
+		for seed := start; seed < start+n; seed++ {
+			var class, msg string
+			t.Run(fmt.Sprint(name, seed), func(t *testing.T) { class, msg = m.run(t, name, uint64(seed)) })
+			if class == "" {
+				continue
 			}
-			if msg := runModel(t, name, uint64(seed), links, modes); msg != "" {
-				found++
-				t.Errorf("backend %s seed %d:\n%s", name, seed, msg)
+			counts[class]++
+			if _, ok := first[class]; !ok {
+				first[class] = fmt.Sprintf("seed %d: %s", seed, msg)
 			}
+		}
+		for class, c := range counts {
+			t.Errorf("backend %s: %s x%d, first:\n%s", name, class, c, first[class])
 		}
 	}
 }
 
-func runModel(t *testing.T, name string, seed uint64, links, modes bool) string {
+type model struct{ links, modes, mtime bool }
+
+func (m *model) actor(r *rand.Rand, dir string) *actor {
+	return &actor{r: r, dir: dir, links: m.links, modes: m.modes, mtime: m.mtime}
+}
+
+func (m *model) run(t *testing.T, name string, seed uint64) (string, string) {
 	r := rand.New(rand.NewPCG(seed, 7))
 	src := t.TempDir()
-	setup := &actor{r: r, dir: src, links: links, modes: modes}
+	setup := m.actor(r, src)
 	for i := range 1 + r.IntN(5) {
 		setup.step(i)
 	}
@@ -223,25 +235,37 @@ func runModel(t *testing.T, name string, seed uint64, links, modes bool) string 
 	})
 	base := readTree(t, src)
 	b, s := open(t, name, src)
-	agent := &actor{r: r, dir: s.Dir, links: links, modes: modes}
-	for i := range 1 + r.IntN(4) {
-		agent.step(100 + i)
+	prev, from := base, Base
+	logs := fmt.Sprintf("  setup: %v\n", setup.log)
+	for turn, cp := range []string{"t1", "t2"} {
+		agent := m.actor(r, s.Dir)
+		for i := range 1 + r.IntN(4) {
+			agent.step(100*(turn+1) + i)
+		}
+		if _, err := b.Checkpoint(s, cp); err != nil {
+			return "checkpoint error", err.Error()
+		}
+		if !strings.Contains(strings.Join(names(t, b, s), " "), cp) {
+			return "", ""
+		}
+		now := readTree(t, s.Dir)
+		user := m.actor(r, src)
+		for i := range r.IntN(3) {
+			user.step(1000*(turn+1) + i)
+		}
+		logs += fmt.Sprintf("  %s agent: %v\n  %s user:  %v\n", cp, agent.log, cp, user.log)
+		class, msg := m.check(t, s, src, from, cp, prev, now, logs)
+		if class != "ok" {
+			return class, msg
+		}
+		prev, from = now, cp
 	}
-	if _, err := b.Checkpoint(s, "t1"); err != nil {
-		return "checkpoint: " + err.Error()
-	}
-	if !strings.Contains(strings.Join(names(t, b, s), " "), "t1") {
-		return ""
-	}
-	turn := readTree(t, s.Dir)
-	user := &actor{r: r, dir: src, links: links, modes: modes}
-	for i := range r.IntN(3) {
-		user.step(200 + i)
-	}
-	folder := readTree(t, src)
-	ctx := fmt.Sprintf("  setup: %v\n  agent: %v\n  user:  %v\n  base:\n%s  turn:\n%s  folder before apply:\n%s",
-		setup.log, agent.log, user.log, show(base), show(turn), show(folder))
+	return "", ""
+}
 
+func (m *model) check(t *testing.T, s *Space, src, from, to string, base, turn tree, logs string) (string, string) {
+	folder := readTree(t, src)
+	ctx := logs + fmt.Sprintf("  apply %s -> %s\n  base:\n%s  turn:\n%s  folder before apply:\n%s", from, to, show(base), show(turn), show(folder))
 	want := tree{}
 	conflict := false
 	for _, k := range keys(base, turn, folder) {
@@ -249,16 +273,16 @@ func runModel(t *testing.T, name string, seed uint64, links, modes bool) string 
 		te, tok := turn[k]
 		fe, fok := folder[k]
 		switch {
-		case same(be, te, bok, tok, modes):
+		case same(be, te, bok, tok, m.modes):
 			if fok {
 				want[k] = fe
 			}
-		case same(fe, be, fok, bok, modes) || same(fe, te, fok, tok, modes):
+		case same(fe, be, fok, bok, m.modes) || same(fe, te, fok, tok, m.modes):
 			if tok {
 				want[k] = te
 			}
 		case same(fe, be, fok, bok, false):
-			return ""
+			return "", ""
 		default:
 			conflict = true
 		}
@@ -266,33 +290,32 @@ func runModel(t *testing.T, name string, seed uint64, links, modes bool) string 
 	if !validTree(want) {
 		conflict = true
 	}
-
-	applied, err := applyIn(t, s, src, Base, "t1")
+	applied, err := applyIn(t, s, src, from, to)
 	after := readTree(t, src)
 	var cf *connector.Conflict
 	switch {
 	case errors.As(err, &cf):
-		if !equalTrees(after, folder, modes) {
-			return "a refused apply changed the folder\n" + ctx + "  after:\n" + show(after)
+		if !equalTrees(after, folder, m.modes) {
+			return "refused apply changed the folder", ctx + "  after:\n" + show(after)
 		}
 		if !conflict {
-			return fmt.Sprintf("apply refused with no real conflict: %v\n%s", err, ctx)
+			return "refused with no real conflict", fmt.Sprintf("%v\n%s", err, ctx)
 		}
-		return ""
+		return "", ""
 	case err != nil:
-		return fmt.Sprintf("apply failed: %v (applied %v)\n%s  after:\n%s", err, applied.Files, ctx, show(after))
+		return "apply error", fmt.Sprintf("%v (applied %v)\n%s  after:\n%s", err, applied.Files, ctx, show(after))
 	}
 	if conflict {
-		return fmt.Sprintf("apply succeeded over a real conflict (applied %v)\n%s  after:\n%s", applied.Files, ctx, show(after))
+		return "SUCCEEDED OVER A REAL CONFLICT", fmt.Sprintf("applied %v\n%s  after:\n%s", applied.Files, ctx, show(after))
 	}
-	if !equalTrees(after, want, modes) {
-		return fmt.Sprintf("apply said applied %v but the folder is wrong\n%s  want:\n%s  after:\n%s", applied.Files, ctx, show(want), show(after))
+	if !equalTrees(after, want, m.modes) {
+		return "APPLIED BUT FOLDER WRONG", fmt.Sprintf("applied %v\n%s  want:\n%s  after:\n%s", applied.Files, ctx, show(want), show(after))
 	}
-	again, err := applyIn(t, s, src, Base, "t1")
-	if err != nil || len(again.Files) > 0 || !equalTrees(readTree(t, src), after, modes) {
-		return fmt.Sprintf("a second apply was not a no-op: %v %v\n%s", again.Files, err, ctx)
+	again, err := applyIn(t, s, src, from, to)
+	if err != nil || len(again.Files) > 0 || !equalTrees(readTree(t, src), after, m.modes) {
+		return "second apply not a no-op", fmt.Sprintf("%v %v\n%s", again.Files, err, ctx)
 	}
-	return ""
+	return "ok", ""
 }
 
 func equalTrees(x, y tree, modes bool) bool {
