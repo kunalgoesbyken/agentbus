@@ -24,5 +24,5 @@ jobs:
       - name: same size and time after a clone
         run: |
           git clone -q --depth 1 https://github.com/StaysUp/agentbus.git /tmp/r1
-          git clone -q --depth 1 https://github.com/golang/example.git /tmp/r2
-          for r in /tmp/r1 /tmp/r2; do PROBE_REPO=$r go test ./isolation -run TestProbeSameTick -count=1 -v 2>&1 | grep files; done
+          git clone -q --depth 1 https://github.com/golang/go.git /tmp/r2; git clone -q --depth 1 https://github.com/vercel/next.js.git /tmp/r3
+          for r in /tmp/r1 /tmp/r2 /tmp/r3; do PROBE_REPO=$r go test ./isolation -run TestProbeSameTick -count=1 -v 2>&1 | grep files; done

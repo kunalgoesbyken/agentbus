@@ -53,6 +53,7 @@ func TestProbeSameTick(t *testing.T) {
 		mtime int64
 	}
 	seen := map[key]int{}
+	contents := map[key]map[string]bool{}
 	files, same := 0, 0
 	filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -68,11 +69,22 @@ func TestProbeSameTick(t *testing.T) {
 			same++
 		}
 		seen[k]++
+		if contents[k] == nil {
+			contents[k] = map[string]bool{}
+		}
+		b, _ := os.ReadFile(p)
+		contents[k][string(b)] = true
 		return nil
 	})
 	ticks := map[int64]bool{}
 	for k := range seen {
 		ticks[k.mtime] = true
 	}
-	t.Logf("%s: %d files, %d distinct mtimes, %d files share size+mtime with another", dir, files, len(ticks), same)
+	differ := 0
+	for _, c := range contents {
+		if len(c) > 1 {
+			differ++
+		}
+	}
+	t.Logf("%s: %d files, %d distinct mtimes, %d files share size+mtime with another, %d size+mtime groups hold different contents", dir, files, len(ticks), same, differ)
 }
