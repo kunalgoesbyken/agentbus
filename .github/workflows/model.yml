@@ -5,28 +5,24 @@ on:
     branches: [model-probe]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  model:
+  probe:
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        head: [main, pr75]
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-          cache: true
-      - name: switch to PR 75
-        if: matrix.head == 'pr75'
+          cache: false
+      - name: rename probe, as root for overlay
+        run: sudo -E env "PATH=$PATH" go test ./isolation -run TestProbeRenameOverSameStat -count=1 -v 2>&1 | grep -v "^=== "
+      - name: same size and time after a clone
         run: |
-          cp isolation/model_test.go /tmp/
-          git fetch -q https://github.com/StaysUp/agentbus.git pull/75/head
-          git checkout -q FETCH_HEAD
-          cp /tmp/model_test.go isolation/
-          git log --oneline -1
-      - name: copy backend, as a user
-        run: MODEL_SEEDS=3000 go test ./isolation -run TestApplyModel -count=1 2>&1 | grep -v "^    --- \|^=== " | head -300
-      - name: overlay, as root
-        run: sudo -E env "PATH=$PATH" MODEL_SEEDS=1500 go test ./isolation -run TestApplyModel -count=1 2>&1 | grep -v "^    --- \|^=== " | head -300
+          git clone -q --depth 1 https://github.com/StaysUp/agentbus.git /tmp/r1
+          git clone -q --depth 1 https://github.com/golang/example.git /tmp/r2
+          for r in /tmp/r1 /tmp/r2; do PROBE_REPO=$r go test ./isolation -run TestProbeSameTick -count=1 -v 2>&1 | grep files; done
