@@ -8,15 +8,25 @@ on:
 jobs:
   model:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        head: [main, pr75]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
-      - name: copy backend
-        run: MODEL_SEEDS=3000 go test ./isolation -run TestApplyModel -count=1 2>&1 | grep -v "^    --- |^=== " | head -400
-      - name: overlay allowed
-        run: sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0
-      - name: copy and overlay
-        run: MODEL_SEEDS=3000 go test ./isolation -run TestApplyModel -count=1 2>&1 | grep -v "^    --- |^=== " | head -400
+      - name: switch to PR 75
+        if: matrix.head == 'pr75'
+        run: |
+          cp isolation/model_test.go /tmp/
+          git fetch -q https://github.com/StaysUp/agentbus.git pull/75/head
+          git checkout -q FETCH_HEAD
+          cp /tmp/model_test.go isolation/
+          git log --oneline -1
+      - name: copy backend, as a user
+        run: MODEL_SEEDS=3000 go test ./isolation -run TestApplyModel -count=1 2>&1 | grep -v "^    --- \|^=== " | head -300
+      - name: overlay, as root
+        run: sudo -E env "PATH=$PATH" MODEL_SEEDS=1500 go test ./isolation -run TestApplyModel -count=1 2>&1 | grep -v "^    --- \|^=== " | head -300

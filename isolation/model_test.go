@@ -189,8 +189,12 @@ func TestApplyModel(t *testing.T) {
 	}
 	start, _ := strconv.Atoi(os.Getenv("MODEL_START"))
 	backends := []string{Copy}
-	if runtime.GOOS == "linux" && OverlayWhy(t.TempDir()) == "" {
-		backends = append(backends, Overlay)
+	if runtime.GOOS == "linux" {
+		if why := OverlayWhy(t.TempDir()); why != "" {
+			t.Logf("no overlay: %s", why)
+		} else {
+			backends = append(backends, Overlay)
+		}
 	}
 	m := &model{links: runtime.GOOS != "windows", modes: runtime.GOOS != "windows", mtime: os.Getenv("MODEL_MTIME") != ""}
 	for _, name := range backends {
@@ -299,7 +303,13 @@ func (m *model) check(t *testing.T, s *Space, src, from, to string, base, turn t
 			return "refused apply changed the folder", ctx + "  after:\n" + show(after)
 		}
 		if !conflict {
-			return "refused with no real conflict", fmt.Sprintf("%v\n%s", err, ctx)
+			kind := "refused, no real conflict, file<->folder swap"
+			for _, f := range cf.Files {
+				if !swapped(base, turn, f.Path) && !swapped(base, folder, f.Path) {
+					kind = "refused, no real conflict, OTHER"
+				}
+			}
+			return kind, fmt.Sprintf("%v\n%s", err, ctx)
 		}
 		return "", ""
 	case err != nil:
@@ -316,6 +326,26 @@ func (m *model) check(t *testing.T, s *Space, src, from, to string, base, turn t
 		return "second apply not a no-op", fmt.Sprintf("%v %v\n%s", again.Files, err, ctx)
 	}
 	return "ok", ""
+}
+
+func under(t tree, p string) bool {
+	for k := range t {
+		if strings.HasPrefix(k, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func swapped(x, y tree, p string) bool {
+	for q := p; q != "." && q != ""; q = filepath.ToSlash(filepath.Dir(q)) {
+		_, xf := x[q]
+		_, yf := y[q]
+		if (xf && under(y, q)) || (yf && under(x, q)) {
+			return true
+		}
+	}
+	return false
 }
 
 func equalTrees(x, y tree, modes bool) bool {
