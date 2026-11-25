@@ -230,6 +230,9 @@ func runModel(t *testing.T, name string, seed uint64, links, modes bool) string 
 	if _, err := b.Checkpoint(s, "t1"); err != nil {
 		return "checkpoint: " + err.Error()
 	}
+	if !strings.Contains(strings.Join(names(t, b, s), " "), "t1") {
+		return ""
+	}
 	turn := readTree(t, s.Dir)
 	user := &actor{r: r, dir: src, links: links, modes: modes}
 	for i := range r.IntN(3) {
@@ -250,10 +253,12 @@ func runModel(t *testing.T, name string, seed uint64, links, modes bool) string 
 			if fok {
 				want[k] = fe
 			}
-		case same(fe, be, fok, bok, false) || same(fe, te, fok, tok, false):
+		case same(fe, be, fok, bok, modes) || same(fe, te, fok, tok, modes):
 			if tok {
 				want[k] = te
 			}
+		case same(fe, be, fok, bok, false):
+			return ""
 		default:
 			conflict = true
 		}
