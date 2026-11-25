@@ -1,0 +1,22 @@
+name: model
+
+on:
+  push:
+    branches: [model-probe]
+  workflow_dispatch:
+
+jobs:
+  model:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: copy backend
+        run: MODEL_SEEDS=3000 go test ./isolation -run TestApplyModel -count=1 -v 2>&1 | tail -300
+      - name: overlay allowed
+        run: sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0
+      - name: copy and overlay
+        run: MODEL_SEEDS=3000 go test ./isolation -run TestApplyModel -count=1 -v 2>&1 | tail -300
