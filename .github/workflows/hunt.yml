@@ -17,4 +17,4 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go test ./isolation -run "TestHuntUpdate" -v -count=1 2>&1 | grep -E "HUNT|FAIL|panic" || true
+      - run: go test ./connector -run TestApplyKeepsAnEdit -v -count=1 2>&1 | tail -20 || true
