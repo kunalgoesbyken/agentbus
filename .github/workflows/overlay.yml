@@ -1,0 +1,25 @@
+name: overlay
+
+on:
+  push:
+    branches: [person-overlay-probe]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  overlay:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: the new tests as root, with overlay
+        run: sudo -E env "PATH=$PATH" go test -tags integration ./isolation ./connector ./workspace -run 'TestApplyOverlayBigFile|TestChangesetSays|TestApplyUnhashedBase|TestChangesetKeeps|TestLazyBase' -count=1 -v 2>&1 | grep -E "^(---|ok|FAIL|PASS|\s+---)" | cut -c1-200 | tail -80
+      - name: everything as root, integration tag
+        run: sudo -E env "PATH=$PATH" go test -tags integration ./... -count=1 2>&1 | grep -v "^ok" | tail -60
