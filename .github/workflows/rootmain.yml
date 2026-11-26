@@ -1,0 +1,22 @@
+name: rootmain
+
+on:
+  push:
+    branches: [person-root-main]
+
+permissions:
+  contents: read
+
+jobs:
+  rootmain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: everything as root on main, integration tag
+        run: sudo -E env "PATH=$PATH" go test -tags integration ./... -count=1 2>&1 | grep -E "^(--- FAIL|FAIL)" | tail -40
