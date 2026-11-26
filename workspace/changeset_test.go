@@ -1,7 +1,9 @@
 package workspace
 
 import (
+	"encoding/json"
 	"io/fs"
+	"strings"
 	"testing"
 )
 
@@ -31,5 +33,26 @@ func TestBetween(t *testing.T) {
 	}
 	if _, err := Between(&Changeset{Space: "x"}, to); err != ErrNotComparable {
 		t.Fatal("changesets of two copies compared")
+	}
+}
+
+// A changeset keeps when its Base began to read the folder through the blob
+// store a remote runner sends it by, and through the part of it that is each
+// folder of a workspace's: both are what an apply compares change times with.
+func TestChangesetKeepsWhenTheBaseBeganToRead(t *testing.T) {
+	cs := Changeset{Space: "s", Checkpoint: "t1", Taken: 1700000000123456789, Files: []FileChange{{Path: "a/x"}, {Path: "b/y"}}}
+	b, err := json.Marshal(cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Changeset
+	if err := json.Unmarshal(b, &back); err != nil || back.Taken != cs.Taken {
+		t.Fatalf("taken %d after a round trip, want %d: %v", back.Taken, cs.Taken, err)
+	}
+	if under := back.Under(Place{Name: "a"}); under.Taken != cs.Taken || len(under.Files) != 1 {
+		t.Fatalf("a folder's part: %+v", under)
+	}
+	if none, err := json.Marshal(Changeset{Space: "s", Files: []FileChange{}}); err != nil || strings.Contains(string(none), "taken") {
+		t.Fatalf("a changeset with no time writes one: %s %v", none, err)
 	}
 }
