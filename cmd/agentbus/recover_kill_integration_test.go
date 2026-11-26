@@ -26,6 +26,7 @@ func TestRecoverAfterServiceEndsMidTurn(t *testing.T) {
 		{"SIGKILL", func(pid int) { syscall.Kill(-pid, syscall.SIGKILL) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			bin := built(t)
 			v, url := newVendor(t)
 			wait := filepath.Join(t.TempDir(), "go")
 			if err := os.WriteFile(wait, nil, 0o600); err != nil {
@@ -41,7 +42,7 @@ func TestRecoverAfterServiceEndsMidTurn(t *testing.T) {
 			t.Setenv("CODEX_HOME", t.TempDir())
 			t.Setenv("HOME", t.TempDir())
 			t.Setenv("CLAUDE_CONFIG_DIR", "")
-			bin, bins, home := built(t), fakeAgentDir(t, "claude"), t.TempDir()
+			bins, home := fakeAgentDir(t, "claude"), t.TempDir()
 			start := func() (*proc, *client) {
 				addr := freeAddr(t)
 				p := startProc(t, bin, home, bins, "up", "-listen", addr)
