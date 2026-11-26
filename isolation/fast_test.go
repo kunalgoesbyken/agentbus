@@ -128,6 +128,11 @@ func TestLazyBaseDiffAndApply(t *testing.T) {
 			src := t.TempDir()
 			fixture(t, src, map[string]string{"a.txt": "line1\nline2\n", "big.bin": strings.Repeat("x", MaxFileDiff+10), "gone.txt": "g"})
 			age(t, src)
+			if name == Overlay {
+				// The Base trusts the stat of a big file it did not hash only once its
+				// change time is past the racy window, as a project's is.
+				time.Sleep(workspace.Racy + 100*time.Millisecond)
+			}
 			b, s := open(t, name, src)
 			fixture(t, s.Dir, map[string]string{"a.txt": "line1\nline2 changed\n", "big.bin": strings.Repeat("y", MaxFileDiff+20)})
 			os.Remove(filepath.Join(s.Dir, "gone.txt"))

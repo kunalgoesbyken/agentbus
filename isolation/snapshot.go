@@ -349,7 +349,7 @@ func ChangesetOf(s *Space, name string) (workspace.Changeset, error) {
 	if err != nil {
 		return workspace.Changeset{}, err
 	}
-	cs := workspace.Changeset{Space: s.ID, Checkpoint: hb.Checkpoint.Name, Snapshot: ha.Checkpoint.Root, Files: []workspace.FileChange{},
+	cs := workspace.Changeset{Space: s.ID, Checkpoint: hb.Checkpoint.Name, Snapshot: ha.Checkpoint.Root, Taken: a.Taken(), Files: []workspace.FileChange{},
 		Truncated: a.Truncated() || b.Truncated()}
 	for _, rel := range b.Changed(a) {
 		fc := workspace.FileChange{Path: rel}

@@ -336,7 +336,8 @@ func (c *Connector) Lend(ref, rel string, f workspace.File) (io.ReadCloser, func
 			return false
 		}
 		defer r2.Close()
-		return sameStat(r2, name, f)
+		// Lend knows no base time, so the times are trusted.
+		return sameStat(r2, name, f, 0)
 	}
 	if !same() {
 		rt.Close()
@@ -663,7 +664,7 @@ func (c *Connector) apply(ctx context.Context, ref string, csFrom, csTo *workspa
 		// A file the base recorded without a hash is as the base saw it,
 		// by size, modification time and mode: one still so in the folder
 		// is as at from, without reading it.
-		if there && fa != nil && fa.Hash == "" && sameStat(rt, name, *fa) {
+		if there && fa != nil && fa.Hash == "" && sameStat(rt, name, *fa, csTo.Taken) {
 			ops = append(ops, &op{rel: st.Path, to: fb, removeOnly: fb == nil})
 			shown = append(shown, shownFile{rel: st.Path, to: fb, exists: true, mode: fa.Mode})
 			continue
@@ -1068,11 +1069,12 @@ func copyInto(rt *os.Root, tmp, src string, perm fs.FileMode) error {
 	return err
 }
 
-// sameStat says whether the file name of rt has f's size, modification time
-// and mode.
-func sameStat(rt *os.Root, name string, f workspace.File) bool {
+// sameStat says whether the file name of rt is still the file f records, as
+// workspace.Keeps does, with a base taken at taken (0: not known, so times are
+// trusted).
+func sameStat(rt *os.Root, name string, f workspace.File, taken int64) bool {
 	fi, err := rt.Lstat(name)
-	return err == nil && fi.Mode() == f.Mode && fi.Size() == f.Size && fi.ModTime().UnixNano() == f.ModTime
+	return err == nil && workspace.Keeps(f, fi, taken)
 }
 
 // hashIn hashes the file name of rt as workspace.Walk does. A missing file

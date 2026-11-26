@@ -165,6 +165,9 @@ func snapshot(s *Space, source string, start time.Time) error {
 	if err != nil {
 		return err
 	}
+	// The Base is the folder as it was when its copy began: a file the person
+	// changed after that is not as the Base saw it (Changeset.Taken).
+	files.SetTaken(start)
 	// The Base leaves .git out, as workspace.Walk does.
 	files.Delete(".git")
 	files.DeleteUnder(".git")
