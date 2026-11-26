@@ -1,0 +1,25 @@
+name: overlay
+
+on:
+  push:
+    branches: [fix89-overlay-probe]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  overlay:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: the matrix as root, with overlay
+        run: sudo -E env "PATH=$PATH" go test ./isolation -run 'TestCheckpointSees' -count=1 -v 2>&1 | grep -v -E "^(=== |\s*--- PASS)" | cut -c1-400 || true
+      - name: isolation and workspace as root
+        run: sudo -E env "PATH=$PATH" go test -tags integration ./isolation ./workspace -count=1 2>&1 | tail -40
