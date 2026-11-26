@@ -851,3 +851,60 @@ func TestIdentityRecoveredFromTheStore(t *testing.T) {
 		t.Errorf("with the first call unread, got %+v, want a refusal", rw)
 	}
 }
+
+// emptyMessage says whether the API would refuse a message that is not the
+// last: no content, or only blank text. The API answers 400 "all messages
+// must have non-empty content except for the optional final assistant
+// message", and "text content blocks must contain non-whitespace text".
+func emptyMessage(m json.RawMessage) bool {
+	var s string
+	if json.Unmarshal(field(m, "content"), &s) == nil {
+		return strings.TrimSpace(s) == ""
+	}
+	blocks, ok := body.Elements(field(m, "content"))
+	if !ok {
+		return false
+	}
+	for _, b := range blocks {
+		if body.Label(b, "type") != "text" {
+			return false
+		}
+		var text string
+		_ = json.Unmarshal(field(b, "text"), &text)
+		if strings.TrimSpace(text) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// A model reply with no content, or with only blank text, is a real reply
+// (a stop_reason of end_turn or refusal with nothing said). Claude Code never
+// sends it back as it is, but the history keeps the stored reply as the vendor
+// sent it, so the next turn's request has an assistant message with nothing in
+// it before the person's new message. The API refuses that request, and every
+// later turn of the session builds its history from this one.
+func TestEmptyReplyIsNotReplayedAsAnEmptyMessage(t *testing.T) {
+	for name, reply := range map[string]string{
+		"no content": `{"role":"assistant","content":[]}`,
+		"blank text": `{"role":"assistant","content":[{"type":"text","text":"\n\n"}]}`,
+		"empty text": `{"role":"assistant","content":[{"type":"text","text":""}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			src := newSource()
+			src.addTurn("t1", "remember the word kiwi", "")
+			src.addCall(t, "t1", "x-1", t1Last, reply, "end_turn")
+			src.addTurn("t2", "which word?", "t1")
+			rw := New(src).Rewrite("s", "t2", []byte(t2First("which word?")))
+			if rw.Refuse != nil || rw.Body == nil {
+				t.Fatalf("refused or unchanged: %+v", rw.Events)
+			}
+			msgs := mustElements(t, field(rw.Body, "messages"))
+			for i, m := range msgs[:len(msgs)-1] {
+				if role(m) != "system" && emptyMessage(m) {
+					t.Errorf("message %d is an empty %s message, and the API refuses a request with one before its last message: %s", i, role(m), m)
+				}
+			}
+		})
+	}
+}
