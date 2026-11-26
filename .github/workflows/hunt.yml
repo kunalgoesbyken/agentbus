@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -17,4 +17,4 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go test ./isolation -run TestHuntMatrix -v -count=1 2>&1 | grep -E "MISMATCH|apply:|checkpoint error|same|^(=== RUN|--- )" | grep -v "=== RUN" || true
+      - run: go test ./isolation -run "TestHuntUpdate" -v -count=1 2>&1 | grep -E "HUNT|FAIL|panic" || true
